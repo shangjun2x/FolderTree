@@ -254,69 +254,87 @@ code {
   font-size: 14px;
 }
 
-/* Document tree preview */
-.doc-tree {
+/* VS Code-style code folding */
+.code-fold {
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   font-size: 13px;
-  line-height: 1.6;
-  padding: 8px 0;
+  line-height: 20px;
+  padding: 4px 0;
 }
 
-.doc-tree-item {
-  margin: 0;
-}
-
-.doc-tree-header {
+.code-fold-line {
   display: flex;
   align-items: flex-start;
-  padding: 1px 8px;
-  cursor: pointer;
-  border-radius: 3px;
+  min-height: 20px;
 }
 
-.doc-tree-header:hover {
-  background: var(--hover);
+.code-fold-line:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.doc-arrow {
-  width: 18px;
-  min-width: 18px;
-  text-align: center;
-  font-size: 10px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-  cursor: pointer;
+.code-fold-line:hover .code-fold-btn.foldable {
+  opacity: 1;
 }
 
-.doc-arrow-spacer {
-  width: 18px;
-  min-width: 18px;
+.code-fold-hidden {
+  display: none !important;
 }
 
-.doc-line {
-  white-space: pre;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.doc-linenum {
-  display: inline-block;
-  width: 40px;
-  color: var(--text-secondary);
-  text-align: right;
-  margin-right: 12px;
+.code-fold-gutter {
+  display: flex;
+  align-items: center;
+  min-width: 70px;
   user-select: none;
+  flex-shrink: 0;
+}
+
+.code-fold-linenum {
+  display: inline-block;
+  width: 36px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-right: 4px;
+}
+
+.code-fold-btn {
+  width: 16px;
+  height: 16px;
+  text-align: center;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.1s;
+  line-height: 16px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+
+.code-fold-btn.foldable:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.code-fold-btn.collapsed {
+  opacity: 1 !important;
+  color: var(--accent);
+}
+
+.code-fold-content {
+  white-space: pre;
+  flex: 1;
+  overflow: hidden;
+}
+
+.code-fold-ellipsis {
+  color: var(--accent);
+  background: rgba(0, 120, 212, 0.15);
+  border-radius: 3px;
+  padding: 0 6px;
+  margin-left: 4px;
   font-size: 11px;
-}
-
-.doc-tree-children {
-  padding-left: 16px;
-  border-left: 1px solid var(--border);
-  margin-left: 8px;
-}
-
-.doc-collapsed {
-  display: none;
+  cursor: pointer;
 }
 
 /* Scrollbar */

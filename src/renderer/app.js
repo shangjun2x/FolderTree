@@ -256,7 +256,7 @@ async function openFile(filePath) {
   // Source with syntax highlighting
   const ext = filePath.split('.').pop().toLowerCase();
 
-  if (result.type === 'docx' || result.type === 'xlsx' || result.type === 'pptx') {
+  if (result.type === 'docx' || result.type === 'xlsx' || result.type === 'pptx' || result.type === 'pdf') {
     sourceCode.textContent = result.content;
     sourceCode.className = result.type === 'docx' ? 'language-html' : 'language-json';
     hljs.highlightElement(sourceCode);
@@ -289,6 +289,11 @@ function renderPreview(filePath, content, type) {
 
   // Office documents
   if (type === 'docx') {
+    previewPanel.innerHTML = `<div class="office-preview" style="background:white;color:#333;padding:20px;border-radius:4px;">${content}</div>`;
+    return;
+  }
+
+  if (type === 'pdf') {
     previewPanel.innerHTML = `<div class="office-preview" style="background:white;color:#333;padding:20px;border-radius:4px;">${content}</div>`;
     return;
   }
@@ -349,142 +354,196 @@ function renderPreview(filePath, content, type) {
   }
 
   if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'bmp', 'webp'].includes(ext)) {
-    previewPanel.innerHTML = `<img src="file://${filePath}" alt="Image preview">`;
+    previewPanel.innerHTML = `<img src="file://${filePath.replace(/\\/g, '/')}" alt="Image preview">`;
+  } else if (type === 'binary') {
+    previewPanel.innerHTML = `<p class="placeholder">Binary file (${ext}) — no text preview available</p>`;
   } else if (['md', 'markdown'].includes(ext)) {
     previewPanel.innerHTML = `<div class="markdown">${renderMarkdown(content)}</div>`;
   } else if (['html', 'htm'].includes(ext)) {
     previewPanel.innerHTML = `<iframe srcdoc="${escapeHtml(content)}" style="width:100%;height:100%;border:none;background:white;"></iframe>`;
   } else {
-    // Collapsible tree-structured document preview
+    // VS Code-style code folding preview
     previewPanel.innerHTML = '';
-    const treeDoc = buildDocTree(content, filePath);
-    previewPanel.appendChild(treeDoc);
+    const foldView = buildFoldableCode(content, filePath);
+    previewPanel.appendChild(foldView);
   }
 }
 
-// Build a collapsible tree document from code based on indentation and blocks
-function buildDocTree(content, filePath) {
-  const ext = filePath.split('.').pop().toLowerCase();
+// Build VS Code-style foldable code view
+function buildFoldableCode(content, filePath) {
   const lines = content.split('\n');
   const container = document.createElement('div');
-  container.className = 'doc-tree';
+  container.className = 'code-fold';
 
-  // Parse lines into a tree structure based on indentation
-  const root = { children: [], level: -1 };
-  const stack = [root];
+  // Find fold regions based on brace matching and indentation
+  const foldRegions = findFoldRegions(lines);
 
+  // Build line elements
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trimStart();
-    if (trimmed === '') continue;
+    const lineEl = document.createElement('div');
+    lineEl.className = 'code-fold-line';
+    lineEl.dataset.line = i;
 
-    const indent = line.length - trimmed.length;
-    const level = Math.floor(indent / 2);
+    // Gutter (line number + fold indicator)
+    const gutter = document.createElement('span');
+    gutter.className = 'code-fold-gutter';
 
-    // Determine if this line starts a block (function, class, object, etc.)
-    const isBlock = isBlockStart(trimmed, ext);
+    const lineNum = document.createElement('span');
+    lineNum.className = 'code-fold-linenum';
+    lineNum.textContent = String(i + 1).padStart(4);
+    gutter.appendChild(lineNum);
 
-    const node = { text: line, lineNum: i + 1, level, isBlock, children: [] };
+    const foldBtn = document.createElement('span');
+    foldBtn.className = 'code-fold-btn';
+    const region = foldRegions.find(r => r.start === i);
+    if (region) {
+      foldBtn.textContent = '⌵';
+      foldBtn.classList.add('foldable');
+      foldBtn.dataset.start = region.start;
+      foldBtn.dataset.end = region.end;
 
-    // Find correct parent based on level
-    while (stack.length > 1 && stack[stack.length - 1].level >= level) {
-      stack.pop();
+      foldBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const start = parseInt(foldBtn.dataset.start);
+        const end = parseInt(foldBtn.dataset.end);
+        const isCollapsed = foldBtn.classList.contains('collapsed');
+
+        if (isCollapsed) {
+          // Expand
+          foldBtn.classList.remove('collapsed');
+          foldBtn.textContent = '⌵';
+          for (let j = start + 1; j <= end; j++) {
+            const el = container.querySelector(`.code-fold-line[data-line="${j}"]`);
+            if (el) el.classList.remove('code-fold-hidden');
+          }
+          // Remove ellipsis
+          const ellipsis = lineEl.querySelector('.code-fold-ellipsis');
+          if (ellipsis) ellipsis.remove();
+        } else {
+          // Collapse
+          foldBtn.classList.add('collapsed');
+          foldBtn.textContent = '›';
+          for (let j = start + 1; j <= end; j++) {
+            const el = container.querySelector(`.code-fold-line[data-line="${j}"]`);
+            if (el) el.classList.add('code-fold-hidden');
+          }
+          // Add ellipsis indicator
+          if (!lineEl.querySelector('.code-fold-ellipsis')) {
+            const ellipsis = document.createElement('span');
+            ellipsis.className = 'code-fold-ellipsis';
+            ellipsis.textContent = ` ⋯ (${end - start} lines)`;
+            lineEl.querySelector('.code-fold-content').appendChild(ellipsis);
+          }
+        }
+      });
     }
+    gutter.appendChild(foldBtn);
+    lineEl.appendChild(gutter);
 
-    stack[stack.length - 1].children.push(node);
+    // Code content
+    const codeLine = document.createElement('span');
+    codeLine.className = 'code-fold-content';
+    codeLine.textContent = lines[i];
+    lineEl.appendChild(codeLine);
 
-    if (isBlock) {
-      stack.push(node);
-    }
+    container.appendChild(lineEl);
   }
 
-  // Render tree
-  renderDocNode(root.children, container, ext);
+  // Apply syntax highlighting to all content
+  setTimeout(() => {
+    const ext = filePath.split('.').pop().toLowerCase();
+    const langMap = {
+      js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript',
+      py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java', cs: 'csharp',
+      css: 'css', scss: 'scss', less: 'less',
+      json: 'json', xml: 'xml', yaml: 'yaml', yml: 'yaml',
+      sh: 'bash', bat: 'dos', ps1: 'powershell',
+      sql: 'sql', php: 'php', c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp'
+    };
+    const lang = langMap[ext];
+    if (lang && window.hljs) {
+      const allCode = lines.join('\n');
+      const highlighted = hljs.highlight(allCode, { language: lang, ignoreIllegals: true });
+      const hlLines = highlighted.value.split('\n');
+      const contentEls = container.querySelectorAll('.code-fold-content');
+      contentEls.forEach((el, idx) => {
+        if (idx < hlLines.length) {
+          // Preserve ellipsis if present
+          const ellipsis = el.querySelector('.code-fold-ellipsis');
+          el.innerHTML = hlLines[idx];
+          if (ellipsis) el.appendChild(ellipsis);
+        }
+      });
+    }
+  }, 0);
+
   return container;
 }
 
-function isBlockStart(line, ext) {
-  // Common block-starting patterns
-  const blockPatterns = [
-    /^(export\s+)?(async\s+)?function\s+/,
-    /^(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s+)?\(/,
-    /^(export\s+)?(const|let|var)\s+\w+\s*=\s*\{/,
-    /^(export\s+)?class\s+/,
-    /^(export\s+)?interface\s+/,
-    /^(export\s+)?type\s+/,
-    /^(export\s+)?enum\s+/,
-    /^\s*if\s*\(/,
-    /^\s*else\s*\{/,
-    /^\s*for\s*\(/,
-    /^\s*while\s*\(/,
-    /^\s*switch\s*\(/,
-    /^\s*try\s*\{/,
-    /^\s*catch\s*\(/,
-    /^def\s+/,
-    /^class\s+/,
-    /^module\s+/,
-    /^\s*@/,
-    /^(public|private|protected|internal|static)\s+/,
-    /^\s*\w+.*\{\s*$/,
-  ];
-  return blockPatterns.some(p => p.test(line));
-}
+// Find fold regions by matching braces and indentation
+function findFoldRegions(lines) {
+  const regions = [];
+  const braceStack = [];
 
-function renderDocNode(nodes, container, ext) {
-  for (const node of nodes) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'doc-tree-item';
-
-    const header = document.createElement('div');
-    header.className = 'doc-tree-header';
-
-    if (node.children.length > 0) {
-      const arrow = document.createElement('span');
-      arrow.className = 'doc-arrow expanded';
-      arrow.textContent = '▼';
-      header.appendChild(arrow);
-
-      const lineText = document.createElement('span');
-      lineText.className = 'doc-line';
-      lineText.innerHTML = `<span class="doc-linenum">${node.lineNum}</span>${escapeHtml(node.text)}`;
-      header.appendChild(lineText);
-
-      const childContainer = document.createElement('div');
-      childContainer.className = 'doc-tree-children';
-      renderDocNode(node.children, childContainer, ext);
-
-      arrow.addEventListener('click', (e) => {
-        e.stopPropagation();
-        arrow.classList.toggle('expanded');
-        arrow.textContent = arrow.classList.contains('expanded') ? '▼' : '▶';
-        childContainer.classList.toggle('doc-collapsed');
-      });
-
-      header.addEventListener('click', (e) => {
-        e.stopPropagation();
-        arrow.classList.toggle('expanded');
-        arrow.textContent = arrow.classList.contains('expanded') ? '▼' : '▶';
-        childContainer.classList.toggle('doc-collapsed');
-      });
-
-      wrapper.appendChild(header);
-      wrapper.appendChild(childContainer);
-    } else {
-      const spacer = document.createElement('span');
-      spacer.className = 'doc-arrow-spacer';
-      spacer.textContent = ' ';
-      header.appendChild(spacer);
-
-      const lineText = document.createElement('span');
-      lineText.className = 'doc-line';
-      lineText.innerHTML = `<span class="doc-linenum">${node.lineNum}</span>${escapeHtml(node.text)}`;
-      header.appendChild(lineText);
-
-      wrapper.appendChild(header);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (let c = 0; c < line.length; c++) {
+      if (line[c] === '{' || line[c] === '[' || line[c] === '(') {
+        braceStack.push({ char: line[c], line: i });
+      } else if (line[c] === '}' || line[c] === ']' || line[c] === ')') {
+        if (braceStack.length > 0) {
+          const open = braceStack.pop();
+          // Only create fold region if it spans multiple lines
+          if (i - open.line >= 2) {
+            regions.push({ start: open.line, end: i });
+          }
+        }
+      }
     }
-
-    container.appendChild(wrapper);
   }
+
+  // Also add indentation-based folding for Python/YAML style
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+    if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('//')) {
+      i++;
+      continue;
+    }
+    const indent = line.length - trimmed.length;
+    // Look for a block of deeper indentation following
+    if (i + 1 < lines.length) {
+      const nextNonEmpty = lines.slice(i + 1).findIndex(l => l.trim() !== '');
+      if (nextNonEmpty >= 0) {
+        const nextLine = lines[i + 1 + nextNonEmpty];
+        const nextIndent = nextLine.length - nextLine.trimStart().length;
+        if (nextIndent > indent) {
+          // Find end of indented block
+          let end = i + 1;
+          for (let j = i + 1; j < lines.length; j++) {
+            const jTrimmed = lines[j].trim();
+            if (jTrimmed === '') continue;
+            const jIndent = lines[j].length - lines[j].trimStart().length;
+            if (jIndent <= indent) break;
+            end = j;
+          }
+          if (end - i >= 2) {
+            // Only add if no brace-based region already covers this
+            const alreadyCovered = regions.some(r => r.start === i);
+            if (!alreadyCovered) {
+              regions.push({ start: i, end });
+            }
+          }
+        }
+      }
+    }
+    i++;
+  }
+
+  // Sort by start line and deduplicate
+  regions.sort((a, b) => a.start - b.start);
+  return regions;
 }
 
 // Simple markdown renderer
