@@ -1,0 +1,36 @@
+{
+  "name": "folder-tree",
+  "version": "1.0.0",
+  "description": "A folder tree viewer with preview and source tabs",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:all": "electron-builder --win --mac"
+  },
+  "build": {
+    "appId": "com.foldertree.app",
+    "productName": "FolderTree",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "dir",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dir",
+      "icon": "assets/icon.icns"
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "mammoth": "^1.12.0",
+    "xlsx": "^0.18.5"
+  }
+}

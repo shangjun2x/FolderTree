@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FolderTree</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="btn-open">📂 Open Folder</button>
+    <span id="current-path" class="path-label">No folder opened</span>
+    <button id="btn-toggle-right" class="btn-toggle" title="Toggle right pane">◧</button>
+  </div>
+
+  <div class="container">
+    <div class="left-pane" id="left-pane">
+      <div class="tree-container" id="tree-container">
+        <p class="placeholder">Open a folder to view its tree</p>
+      </div>
+    </div>
+
+    <div class="splitter" id="splitter"></div>
+
+    <div class="right-pane" id="right-pane">
+      <div class="tab-bar">
+        <button class="tab active" data-tab="preview">Preview</button>
+        <button class="tab" data-tab="source">Source</button>
+        <button class="tab" data-tab="split">Split</button>
+      </div>
+      <div class="tab-content" id="tab-content">
+        <div class="panel preview-panel" id="preview-panel">
+          <p class="placeholder">Select a file to preview</p>
+        </div>
+        <div class="panel source-panel hidden" id="source-panel">
+          <pre><code id="source-code"></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
