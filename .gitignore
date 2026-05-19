@@ -1,7 +1,26 @@
-node_modules/
-dist/
-*.log
+# OS
 .DS_Store
 Thumbs.db
+
+# Editors
 *.swp
 *.swo
+*.log
+
+# Electron
+Electron/node_modules/
+Electron/dist/
+
+# Swift
+Swift/FolderTree.xcodeproj/xcuserdata/
+Swift/FolderTree.xcodeproj/project.xcworkspace/xcuserdata/
+Swift/DerivedData/
+Swift/*.app
+
+# WPF / .NET
+WPF/**/bin/
+WPF/**/obj/
+WPF/dist/
+WPF/.vs/
+*.user
+*.suo

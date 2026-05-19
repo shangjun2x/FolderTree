@@ -161,9 +161,15 @@ ipcMain.handle('read-file', async (event, filePath) => {
     }
 
     // Binary file check - skip reading as utf-8
-    const binaryExts = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.zip', '.tar', '.gz', '.exe', '.dll'];
+    const binaryExts = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.icns', '.heic'];
+    const archiveExts = ['.zip', '.tar', '.gz', '.rar', '.7z', '.exe', '.dll', '.dmg', '.pkg', '.iso'];
+    
     if (binaryExts.includes(ext)) {
       return { content: '', path: filePath, size: stat.size, type: 'image' };
+    }
+    
+    if (archiveExts.includes(ext)) {
+      return { content: '', path: filePath, size: stat.size, type: 'binary' };
     }
 
     const content = fs.readFileSync(filePath, 'utf-8');

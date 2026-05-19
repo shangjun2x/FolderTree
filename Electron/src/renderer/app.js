@@ -583,10 +583,10 @@ function renderPreview(filePath, content, type) {
   if (type === 'tiff') {
     // TIFF is converted to base64 PNG by main process
     previewPanel.innerHTML = `<img src="${content}" alt="TIFF preview">`;
-  } else if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'bmp', 'webp'].includes(ext)) {
+  } else if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'bmp', 'webp', 'icns', 'heic'].includes(ext)) {
     previewPanel.innerHTML = `<img src="file://${filePath.replace(/\\/g, '/')}" alt="Image preview">`;
   } else if (type === 'binary') {
-    previewPanel.innerHTML = `<p class="placeholder">Binary file (${ext}) — no text preview available</p>`;
+    previewPanel.innerHTML = `<p class="placeholder">Binary file (${ext}) — no preview available</p>`;
   } else if (['md', 'markdown'].includes(ext)) {
     previewPanel.innerHTML = `<div class="markdown">${renderMarkdown(content)}</div>`;
   } else if (ext === 'json') {

@@ -1,80 +1,101 @@
 # FolderTree
 
-A cross-platform desktop application that displays folder structures as a tree and provides file preview capabilities.
+A modern folder tree viewer with file preview, available in **Swift** (macOS), **WPF** (Windows), and **Electron** (cross-platform).
+
+![macOS](https://img.shields.io/badge/macOS-13.0+-blue) ![Windows](https://img.shields.io/badge/Windows-10+-blue) ![Swift](https://img.shields.io/badge/Swift-5.0-orange) ![.NET](https://img.shields.io/badge/.NET-8.0-purple) ![Electron](https://img.shields.io/badge/Electron-28.0-blue)
 
 ## Features
 
-- **Tree View** — Left pane shows folders and files in a hierarchical tree with expand/collapse
-- **Preview Tab** — Right pane renders file previews (images, markdown, HTML, plain text with line numbers)
-- **Source Tab** — View raw file source code
-- **Split View** — Show preview and source side-by-side
-- **Toggle Pane** — Hide/show the right pane with one click
-- **Resizable Splitter** — Drag to adjust pane widths
-- **File Icons** — Contextual icons based on file extension
+- 📁 **Folder tree** with lazy loading for fast performance
+- 👀 **File preview** for 30+ file types
+- 🎨 **Syntax highlighting** for code files
+- 🖱️ **Drag & drop** to move files and folders
+- 🌙 **Light/Dark theme** support (system automatic)
+- 🔗 **External links** open in browser
 
-## Getting Started
+### Supported File Types
 
-### Prerequisites
+| Category | Extensions | Preview Type |
+|----------|------------|--------------|
+| **Code** | Swift, JS, TS, Python, Ruby, Go, Rust, Java, C#, C/C++ | Syntax highlighted |
+| **Data** | JSON, YAML, XML, SQL | Syntax highlighted / Tree view |
+| **Web** | HTML, CSS, SCSS, Markdown | Rendered preview |
+| **Images** | PNG, JPG, GIF, WebP, SVG, TIFF, HEIC, ICNS | Native preview |
+| **Documents** | PDF | Native preview |
+| **Shell** | Bash, Zsh, Fish | Syntax highlighted |
 
-- [Node.js](https://nodejs.org/) (v18+)
-- npm
+## Versions
 
-### Install Dependencies
+### Swift (macOS - Recommended)
+
+- **Size:** ~2 MB
+- **Platform:** macOS 13.0+
+- **Performance:** Native, fast, low memory
 
 ```bash
+cd Swift
+open FolderTree.app
+# Or build from source:
+xcodebuild -scheme FolderTree -configuration Release build
+```
+
+### WPF (Windows - Recommended)
+
+- **Size:** ~15 MB (self-contained)
+- **Platform:** Windows 10/11
+- **Performance:** Native, fast
+
+```batch
+cd WPF
+build.bat
+:: Or run directly:
+dotnet run --project FolderTree\FolderTree.csproj
+```
+
+### Electron (Cross-platform)
+
+- **Size:** ~441 MB
+- **Platform:** macOS, Windows
+- **Note:** Includes TIFF support via Sharp library
+
+```bash
+cd Electron
 npm install
+npm start           # Run in development
+npm run build:mac   # Build for macOS
+npm run build:win   # Build for Windows
 ```
-
-### Run in Development
-
-```bash
-npm start
-```
-
-### Build
-
-**Windows** (run on Windows):
-```bash
-npm run build:win
-```
-
-**macOS** (run on macOS):
-```bash
-npm run build:mac
-```
-
-**Both** (requires macOS for Mac build):
-```bash
-npm run build:all
-```
-
-Built apps are output to `dist/windows/` and `dist/mac/`.
 
 ## Project Structure
 
 ```
 FolderTree/
-├── src/
-│   ├── main.js          # Electron main process
-│   ├── preload.js       # Context bridge (IPC)
-│   └── renderer/
-│       ├── index.html   # App shell
-│       ├── styles.css   # Dark theme UI
-│       └── app.js       # Tree rendering & file preview logic
-├── dist/
-│   ├── windows/         # Windows build output
-│   └── mac/             # macOS build output
-├── package.json
-└── README.md
+├── Swift/                    # Native macOS app (2 MB)
+│   ├── FolderTree.xcodeproj
+│   ├── FolderTree/
+│   └── FolderTree.app
+│
+├── WPF/                      # Native Windows app (15 MB)
+│   ├── FolderTree.sln
+│   ├── FolderTree/
+│   └── dist/
+│
+├── Electron/                 # Cross-platform (441 MB)
+│   ├── src/
+│   ├── package.json
+│   └── dist/
+│
+├── build-mac.sh
+└── build-win.bat
 ```
 
-## Usage
+## Size Comparison
 
-1. Launch the app
-2. Click **📂 Open Folder** to select a directory
-3. Browse the tree on the left, click files to view them
-4. Switch between **Preview**, **Source**, or **Split** tabs
-5. Click **◧** to toggle the right pane
+| Version | Size | Platform |
+|---------|------|----------|
+| **Swift** | 2 MB | macOS |
+| **WPF** | 15 MB | Windows |
+| **Electron** | 441 MB | Cross-platform |
 
 ## License
 
