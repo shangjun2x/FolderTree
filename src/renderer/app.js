@@ -14,6 +14,25 @@ const sourceCode = document.getElementById('source-code');
 const tabContent = document.getElementById('tab-content');
 const currentPathLabel = document.getElementById('current-path');
 
+// Intercept link clicks in preview panel - open in browser
+previewPanel.addEventListener('click', (e) => {
+  const link = e.target.closest('a');
+  if (link && link.href) {
+    e.preventDefault();
+    const url = link.href;
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      window.api.openExternal(url);
+    }
+  }
+});
+
+// Listen for messages from iframes (HTML preview)
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'open-link' && e.data.url) {
+    window.api.openExternal(e.data.url);
+  }
+});
+
 // Open folder
 document.getElementById('btn-open').addEventListener('click', async () => {
   const folderPath = await window.api.openFolder();
@@ -584,7 +603,27 @@ function renderPreview(filePath, content, type) {
       previewPanel.appendChild(foldView);
     }
   } else if (['html', 'htm'].includes(ext)) {
-    previewPanel.innerHTML = `<iframe srcdoc="${escapeHtml(content)}" style="width:100%;height:100%;border:none;background:white;"></iframe>`;
+    // Create iframe and inject script to open links in external browser
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'width:100%;height:100%;border:none;background:white;';
+    iframe.sandbox = 'allow-scripts allow-same-origin';
+    previewPanel.innerHTML = '';
+    previewPanel.appendChild(iframe);
+    
+    const linkScript = `<script>
+      document.addEventListener('click', function(e) {
+        var link = e.target.closest('a');
+        if (link && link.href && (link.href.startsWith('http://') || link.href.startsWith('https://'))) {
+          e.preventDefault();
+          window.parent.postMessage({ type: 'open-link', url: link.href }, '*');
+        }
+      });
+    <\/script>`;
+    
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write(content.includes('</body>') ? content.replace('</body>', linkScript + '</body>') : content + linkScript);
+    doc.close();
   } else {
     // VS Code-style code folding preview
     previewPanel.innerHTML = '';

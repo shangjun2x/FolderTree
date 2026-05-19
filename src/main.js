@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -17,6 +17,21 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Open external links in browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
 }
 
 app.whenReady().then(createWindow);
@@ -212,4 +227,13 @@ ipcMain.handle('move-item', async (event, sourcePath, destFolder) => {
   } catch (err) {
     return { error: err.message };
   }
+});
+
+// IPC: Open external URL in browser
+ipcMain.handle('open-external', async (event, url) => {
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    await shell.openExternal(url);
+    return { success: true };
+  }
+  return { error: 'Invalid URL' };
 });
