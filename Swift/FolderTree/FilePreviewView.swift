@@ -138,15 +138,18 @@ struct FilePreviewView: View {
             ScrollView {
                 if let json = jsonObject {
                     JSONTreeView(value: json, key: nil, level: 0)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
                 }
             }
             
         case .html:
             HTMLPreviewView(content: content, baseURL: file.url.deletingLastPathComponent())
+                .frame(maxWidth: .infinity, alignment: .leading)
             
         case .markdown:
             MarkdownPreviewView(content: content)
+                .frame(maxWidth: .infinity, alignment: .leading)
             
         case .unsupported:
             VStack(spacing: 16) {

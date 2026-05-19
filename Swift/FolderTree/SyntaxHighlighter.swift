@@ -526,11 +526,20 @@ struct CodeBlockView: View {
     let language: SyntaxHighlighter.Language
     @State private var isExpanded = true
     
+    private let lineNumberWidth: CGFloat = 40
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if block.isCollapsible && block.lineCount > 1 {
                 // Collapsible header
-                HStack(spacing: 4) {
+                HStack(spacing: 0) {
+                    // Line number
+                    Text("\(block.startLine)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .frame(width: lineNumberWidth, alignment: .trailing)
+                        .padding(.trailing, 12)
+                    
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.secondary)
@@ -557,9 +566,16 @@ struct CodeBlockView: View {
                 // Body (when expanded)
                 if isExpanded && block.lineCount > 1 {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(block.lines.dropFirst().enumerated()), id: \.offset) { _, line in
+                        ForEach(Array(block.lines.dropFirst().enumerated()), id: \.offset) { index, line in
                             HStack(spacing: 0) {
-                                Spacer().frame(width: 18) // Indent
+                                // Line number
+                                Text("\(block.startLine + index + 1)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.secondary.opacity(0.6))
+                                    .frame(width: lineNumberWidth, alignment: .trailing)
+                                    .padding(.trailing, 12)
+                                
+                                Spacer().frame(width: 14) // Align with chevron
                                 Text(SyntaxHighlighter.highlight(line, language: language))
                                     .font(.system(size: 13, design: .monospaced))
                                 Spacer(minLength: 0)
@@ -570,7 +586,14 @@ struct CodeBlockView: View {
             } else {
                 // Non-collapsible single line
                 HStack(spacing: 0) {
-                    Spacer().frame(width: 18)
+                    // Line number
+                    Text("\(block.startLine)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .frame(width: lineNumberWidth, alignment: .trailing)
+                        .padding(.trailing, 12)
+                    
+                    Spacer().frame(width: 14) // Align with chevron space
                     Text(SyntaxHighlighter.highlight(block.header, language: language))
                         .font(.system(size: 13, design: .monospaced))
                     Spacer(minLength: 0)
