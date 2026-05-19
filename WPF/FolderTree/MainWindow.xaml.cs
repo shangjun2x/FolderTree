@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -18,6 +21,23 @@ namespace FolderTree
     {
         private FileItem? _currentFile;
         private string _currentContent = "";
+        private CancellationTokenSource? _loadCts;
+        
+        // Preview Settings
+        private static readonly long MaxFileSize = 100 * 1024 * 1024; // 100 MB
+        private static readonly TimeSpan LoadTimeout = TimeSpan.FromSeconds(10);
+        private static HashSet<string> _whitelist = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // Code
+            "swift", "js", "jsx", "mjs", "ts", "tsx", "py", "rb", "go", "rs", "java", "cs",
+            "cpp", "cc", "cxx", "hpp", "c", "h", "css", "scss", "sass", "less",
+            "xml", "xsl", "xslt", "plist", "yml", "yaml", "sql", "sh", "bash", "zsh", "fish",
+            // Documents
+            "txt", "md", "markdown", "json", "html", "htm", "pdf",
+            // Images
+            "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "tiff", "tif"
+        };
+        private static bool _isWhitelistEnabled = false;
 
         public MainWindow()
         {
@@ -65,6 +85,11 @@ namespace FolderTree
 
         private void LoadPreview(FileItem item)
         {
+            // Cancel any pending load
+            _loadCts?.Cancel();
+            _loadCts = new CancellationTokenSource();
+            var token = _loadCts.Token;
+            
             // Update header
             FileIcon.Text = item.Icon;
             FileName.Text = item.Name;
@@ -77,62 +102,109 @@ namespace FolderTree
             Placeholder.Visibility = Visibility.Collapsed;
             PreviewContent.Children.Clear();
 
-            string ext = Path.GetExtension(item.FullPath).ToLowerInvariant();
+            string ext = Path.GetExtension(item.FullPath).ToLowerInvariant().TrimStart('.');
             bool isSourceView = SourceTab.IsChecked == true;
-
-            try
+            
+            // Check file size limit (100 MB)
+            if (item.Size > MaxFileSize)
             {
-                // Images
-                string[] imageExts = { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif" };
-                if (imageExts.Contains(ext))
-                {
-                    var bitmap = new BitmapImage();
-                    bitmap.BeginInit();
-                    bitmap.UriSource = new Uri(item.FullPath);
-                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                    bitmap.EndInit();
-                    ImagePreview.Source = bitmap;
-                    ImagePreview.Visibility = Visibility.Visible;
-                    return;
-                }
+                ShowPlaceholder("File too large to preview (>100 MB)");
+                return;
+            }
+            
+            // Check whitelist
+            if (_isWhitelistEnabled && !_whitelist.Contains(ext))
+            {
+                ShowPlaceholder($"File type .{ext} not in whitelist");
+                return;
+            }
 
-                // PDF / HTML
-                if (ext == ".pdf" || ext == ".html" || ext == ".htm")
+            // Load with timeout
+            Task.Run(async () =>
+            {
+                try
                 {
-                    if (!isSourceView && (ext == ".html" || ext == ".htm"))
+                    var loadTask = Task.Run(() => LoadPreviewContent(item, ext, isSourceView, token), token);
+                    var timeoutTask = Task.Delay(LoadTimeout, token);
+                    
+                    var completedTask = await Task.WhenAny(loadTask, timeoutTask);
+                    
+                    if (completedTask == timeoutTask && !loadTask.IsCompleted)
                     {
-                        WebPreview.Navigate(new Uri(item.FullPath));
-                        WebPreview.Visibility = Visibility.Visible;
+                        Dispatcher.Invoke(() => ShowPlaceholder("Preview timed out (>10s)"));
                         return;
                     }
+                    
+                    await loadTask;
                 }
-
-                // Binary files
-                string[] binaryExts = { ".zip", ".tar", ".gz", ".rar", ".7z", ".exe", ".dll", ".pdf",
-                                       ".mp3", ".mp4", ".avi", ".mkv", ".mov", ".wav" };
-                if (binaryExts.Contains(ext))
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
                 {
-                    ShowPlaceholder("Binary file - no preview available");
-                    return;
+                    Dispatcher.Invoke(() => ShowPlaceholder($"Error loading file: {ex.Message}"));
                 }
-
-                // Read file content
-                _currentContent = File.ReadAllText(item.FullPath, Encoding.UTF8);
-
-                // JSON
-                if (ext == ".json" && !isSourceView)
-                {
-                    ShowJsonTree(_currentContent);
-                    return;
-                }
-
-                // Code with syntax highlighting
-                ShowSyntaxHighlightedCode(_currentContent, ext, !isSourceView);
-            }
-            catch (Exception ex)
+            }, token);
+        }
+        
+        private void LoadPreviewContent(FileItem item, string ext, bool isSourceView, CancellationToken token)
+        {
+            if (token.IsCancellationRequested) return;
+            
+            Dispatcher.Invoke(() =>
             {
-                ShowPlaceholder($"Error loading file: {ex.Message}");
-            }
+                try
+                {
+                    // Images
+                    string[] imageExts = { "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "tiff", "tif" };
+                    if (imageExts.Contains(ext))
+                    {
+                        var bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.UriSource = new Uri(item.FullPath);
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmap.EndInit();
+                        ImagePreview.Source = bitmap;
+                        ImagePreview.Visibility = Visibility.Visible;
+                        return;
+                    }
+
+                    // PDF / HTML
+                    if (ext == "pdf" || ext == "html" || ext == "htm")
+                    {
+                        if (!isSourceView && (ext == "html" || ext == "htm"))
+                        {
+                            WebPreview.Navigate(new Uri(item.FullPath));
+                            WebPreview.Visibility = Visibility.Visible;
+                            return;
+                        }
+                    }
+
+                    // Binary files
+                    string[] binaryExts = { "zip", "tar", "gz", "rar", "7z", "exe", "dll", "pdf",
+                                           "mp3", "mp4", "avi", "mkv", "mov", "wav" };
+                    if (binaryExts.Contains(ext))
+                    {
+                        ShowPlaceholder("Binary file - no preview available");
+                        return;
+                    }
+
+                    // Read file content
+                    _currentContent = File.ReadAllText(item.FullPath, Encoding.UTF8);
+
+                    // JSON
+                    if (ext == "json" && !isSourceView)
+                    {
+                        ShowJsonTree(_currentContent);
+                        return;
+                    }
+
+                    // Code with syntax highlighting
+                    ShowSyntaxHighlightedCode(_currentContent, "." + ext, !isSourceView);
+                }
+                catch (Exception ex)
+                {
+                    ShowPlaceholder($"Error loading file: {ex.Message}");
+                }
+            });
         }
 
         private void ShowPlaceholder(string message)

@@ -4,6 +4,58 @@ const fs = require('fs');
 
 let mainWindow;
 
+// Preview Settings
+const defaultWhitelist = new Set([
+  // Code
+  'swift', 'js', 'jsx', 'mjs', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'cs',
+  'cpp', 'cc', 'cxx', 'hpp', 'c', 'h', 'css', 'scss', 'sass', 'less',
+  'xml', 'xsl', 'xslt', 'plist', 'yml', 'yaml', 'sql', 'sh', 'bash', 'zsh', 'fish',
+  // Documents
+  'txt', 'md', 'markdown', 'json', 'html', 'htm', 'pdf', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt',
+  // Images
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'tiff', 'tif', 'heic', 'svg', 'icns'
+]);
+
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+const LOAD_TIMEOUT = 10000; // 10 seconds
+
+let previewSettings = {
+  whitelist: new Set(defaultWhitelist),
+  isWhitelistEnabled: false
+};
+
+// Load settings from file
+function loadSettings() {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'preview-settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      previewSettings.whitelist = new Set(data.whitelist || defaultWhitelist);
+      previewSettings.isWhitelistEnabled = data.isWhitelistEnabled || false;
+    }
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+}
+
+// Save settings to file
+function saveSettings() {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'preview-settings.json');
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      whitelist: Array.from(previewSettings.whitelist),
+      isWhitelistEnabled: previewSettings.isWhitelistEnabled
+    }));
+  } catch (e) {
+    console.error('Failed to save settings:', e);
+  }
+}
+
+function isExtensionAllowed(ext) {
+  if (!previewSettings.isWhitelistEnabled) return true;
+  return previewSettings.whitelist.has(ext.toLowerCase().replace('.', ''));
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -34,7 +86,10 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  loadSettings();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -66,11 +121,47 @@ ipcMain.handle('read-dir', async (event, dirPath) => {
 ipcMain.handle('read-file', async (event, filePath) => {
   try {
     const stat = fs.statSync(filePath);
-    if (stat.size > 20 * 1024 * 1024) {
-      return { error: 'File too large to preview (>20MB)' };
-    }
-
     const ext = path.extname(filePath).toLowerCase();
+    
+    // Check file size limit (100 MB)
+    if (stat.size > MAX_FILE_SIZE) {
+      return { error: 'File too large to preview (>100MB)', type: 'fileTooLarge' };
+    }
+    
+    // Check whitelist
+    if (!isExtensionAllowed(ext)) {
+      return { error: `File type ${ext} not in whitelist`, type: 'notAllowed' };
+    }
+    
+    // Wrap file reading with timeout
+    const readWithTimeout = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Preview timed out (>10s)'));
+      }, LOAD_TIMEOUT);
+      
+      (async () => {
+        try {
+          const result = await readFileContent(filePath, stat, ext);
+          clearTimeout(timeout);
+          resolve(result);
+        } catch (e) {
+          clearTimeout(timeout);
+          reject(e);
+        }
+      })();
+    });
+    
+    return await readWithTimeout;
+  } catch (err) {
+    if (err.message.includes('timed out')) {
+      return { error: err.message, type: 'timeout' };
+    }
+    return { error: err.message };
+  }
+});
+
+// Actual file reading logic
+async function readFileContent(filePath, stat, ext) {
 
     // Office documents
     if (ext === '.docx' || ext === '.doc') {
@@ -174,10 +265,7 @@ ipcMain.handle('read-file', async (event, filePath) => {
 
     const content = fs.readFileSync(filePath, 'utf-8');
     return { content, path: filePath, size: stat.size };
-  } catch (err) {
-    return { error: err.message };
-  }
-});
+}
 
 // Build shallow tree (one level only)
 function buildTreeShallow(dirPath) {
@@ -242,4 +330,33 @@ ipcMain.handle('open-external', async (event, url) => {
     return { success: true };
   }
   return { error: 'Invalid URL' };
+});
+
+// IPC: Get preview settings
+ipcMain.handle('get-preview-settings', () => {
+  return {
+    whitelist: Array.from(previewSettings.whitelist).sort(),
+    isWhitelistEnabled: previewSettings.isWhitelistEnabled,
+    maxFileSize: MAX_FILE_SIZE,
+    loadTimeout: LOAD_TIMEOUT
+  };
+});
+
+// IPC: Update preview settings
+ipcMain.handle('set-preview-settings', (event, settings) => {
+  if (settings.whitelist !== undefined) {
+    previewSettings.whitelist = new Set(settings.whitelist);
+  }
+  if (settings.isWhitelistEnabled !== undefined) {
+    previewSettings.isWhitelistEnabled = settings.isWhitelistEnabled;
+  }
+  saveSettings();
+  return { success: true };
+});
+
+// IPC: Reset whitelist to default
+ipcMain.handle('reset-preview-whitelist', () => {
+  previewSettings.whitelist = new Set(defaultWhitelist);
+  saveSettings();
+  return { whitelist: Array.from(previewSettings.whitelist).sort() };
 });

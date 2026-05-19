@@ -8,10 +8,12 @@ struct FilePreviewView: View {
     
     @State private var content: String = ""
     @State private var isLoading = true
+    @State private var isTimedOut = false
     @State private var previewType: PreviewType = .text
     @State private var nsImage: NSImage?
     @State private var jsonObject: Any?
     @State private var selectedTab = 0  // 0 = Preview, 1 = Source
+    @State private var loadTask: Task<Void, Never>?
     
     enum PreviewType {
         case text
@@ -22,11 +24,13 @@ struct FilePreviewView: View {
         case html
         case markdown
         case unsupported
+        case fileTooLarge
+        case notAllowed
     }
     
     private var showTabs: Bool {
         switch previewType {
-        case .image, .pdf, .unsupported:
+        case .image, .pdf, .unsupported, .fileTooLarge, .notAllowed:
             return false
         default:
             return true
@@ -86,6 +90,24 @@ struct FilePreviewView: View {
                         .foregroundColor(.secondary)
                     Spacer()
                 }
+            } else if isTimedOut {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: "clock.badge.xmark")
+                        .font(.system(size: 56))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("Preview timed out")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    Text("File took too long to load (>10s)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary.opacity(0.7))
+                    Button("Open in Default App") {
+                        NSWorkspace.shared.open(file.url)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Spacer()
+                }
             } else {
                 if selectedTab == 1 && showTabs {
                     // Source view
@@ -96,8 +118,40 @@ struct FilePreviewView: View {
                 }
             }
         }
-        .task(id: file.id) {
-            await loadPreview()
+        .task(id: file.url) {
+            loadTask?.cancel()
+            isTimedOut = false
+            isLoading = true
+            
+            loadTask = Task {
+                await withTaskGroup(of: Bool.self) { group in
+                    // Timeout task
+                    group.addTask {
+                        try? await Task.sleep(nanoseconds: PreviewSettings.loadTimeout)
+                        return true // timed out
+                    }
+                    
+                    // Load task
+                    group.addTask {
+                        await self.loadPreview()
+                        return false // completed
+                    }
+                    
+                    // Wait for first to complete
+                    if let timedOut = await group.next() {
+                        if timedOut && isLoading {
+                            await MainActor.run {
+                                isTimedOut = true
+                                isLoading = false
+                            }
+                        }
+                        group.cancelAll()
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            loadTask?.cancel()
         }
     }
     
@@ -165,6 +219,49 @@ struct FilePreviewView: View {
                 .buttonStyle(.borderedProminent)
                 Spacer()
             }
+            
+        case .fileTooLarge:
+            VStack(spacing: 16) {
+                Spacer()
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 56))
+                    .foregroundColor(.orange.opacity(0.7))
+                Text("File too large to preview")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                Text("Files larger than 100 MB cannot be previewed")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary.opacity(0.7))
+                Button("Open in Default App") {
+                    NSWorkspace.shared.open(file.url)
+                }
+                .buttonStyle(.borderedProminent)
+                Spacer()
+            }
+            
+        case .notAllowed:
+            VStack(spacing: 16) {
+                Spacer()
+                Image(systemName: "nosign")
+                    .font(.system(size: 56))
+                    .foregroundColor(.secondary.opacity(0.5))
+                Text("File type not in whitelist")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                Text(".\(file.fileExtension) is not allowed for preview")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary.opacity(0.7))
+                HStack(spacing: 12) {
+                    Button("Open Settings") {
+                        NotificationCenter.default.post(name: .openPreviewSettings, object: nil)
+                    }
+                    Button("Open in Default App") {
+                        NSWorkspace.shared.open(file.url)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                Spacer()
+            }
         }
     }
     
@@ -181,27 +278,60 @@ struct FilePreviewView: View {
     }
     
     private func loadPreview() async {
-        isLoading = true
-        selectedTab = 0
+        guard !Task.isCancelled else { return }
+        
+        await MainActor.run {
+            isLoading = true
+            selectedTab = 0
+        }
+        
         let ext = file.fileExtension
+        let settings = PreviewSettings.shared
+        
+        // Check file size limit (100 MB)
+        if file.size > PreviewSettings.maxFileSize {
+            await MainActor.run {
+                previewType = .fileTooLarge
+                isLoading = false
+            }
+            return
+        }
+        
+        // Check whitelist
+        if !settings.isAllowed(ext) {
+            await MainActor.run {
+                previewType = .notAllowed
+                isLoading = false
+            }
+            return
+        }
+        
+        guard !Task.isCancelled else { return }
         
         // Images (macOS natively supports TIFF, HEIC, ICNS!)
         let imageExts = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "tiff", "tif", "heic", "svg", "icns"]
         if imageExts.contains(ext) {
             if let image = NSImage(contentsOf: file.url) {
-                nsImage = image
-                previewType = .image
+                await MainActor.run {
+                    nsImage = image
+                    previewType = .image
+                    isLoading = false
+                }
             } else {
-                previewType = .unsupported
+                await MainActor.run {
+                    previewType = .unsupported
+                    isLoading = false
+                }
             }
-            isLoading = false
             return
         }
         
         // PDF
         if ext == "pdf" {
-            previewType = .pdf
-            isLoading = false
+            await MainActor.run {
+                previewType = .pdf
+                isLoading = false
+            }
             return
         }
         
@@ -209,49 +339,77 @@ struct FilePreviewView: View {
         let binaryExts = ["zip", "tar", "gz", "exe", "dll", "dmg", "pkg", "app", "rar", "7z",
                          "mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "iso", "bin", "dat"]
         if binaryExts.contains(ext) {
-            previewType = .unsupported
-            isLoading = false
+            await MainActor.run {
+                previewType = .unsupported
+                isLoading = false
+            }
             return
         }
+        
+        guard !Task.isCancelled else { return }
         
         // JSON
         if ext == "json" {
             do {
                 let data = try Data(contentsOf: file.url)
-                jsonObject = try JSONSerialization.jsonObject(with: data)
-                content = String(data: data, encoding: .utf8) ?? ""
-                previewType = .json
+                guard !Task.isCancelled else { return }
+                let json = try JSONSerialization.jsonObject(with: data)
+                let str = String(data: data, encoding: .utf8) ?? ""
+                await MainActor.run {
+                    jsonObject = json
+                    content = str
+                    previewType = .json
+                    isLoading = false
+                }
             } catch {
-                content = "Error parsing JSON: \(error.localizedDescription)"
-                previewType = .text
+                await MainActor.run {
+                    content = "Error parsing JSON: \(error.localizedDescription)"
+                    previewType = .text
+                    isLoading = false
+                }
             }
-            isLoading = false
             return
         }
         
         // HTML
         if ["html", "htm"].contains(ext) {
             do {
-                content = try String(contentsOf: file.url, encoding: .utf8)
-                previewType = .html
+                let str = try String(contentsOf: file.url, encoding: .utf8)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    content = str
+                    previewType = .html
+                    isLoading = false
+                }
             } catch {
-                previewType = .unsupported
+                await MainActor.run {
+                    previewType = .unsupported
+                    isLoading = false
+                }
             }
-            isLoading = false
             return
         }
         
         // Markdown - render as formatted
         if ["md", "markdown"].contains(ext) {
             do {
-                content = try String(contentsOf: file.url, encoding: .utf8)
-                previewType = .markdown
+                let str = try String(contentsOf: file.url, encoding: .utf8)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    content = str
+                    previewType = .markdown
+                    isLoading = false
+                }
             } catch {
-                previewType = .unsupported
+                await MainActor.run {
+                    previewType = .unsupported
+                    isLoading = false
+                }
             }
-            isLoading = false
             return
         }
+        
+        guard !Task.isCancelled else { return }
         
         // Code files with syntax highlighting
         let codeExts = ["swift", "js", "jsx", "mjs", "ts", "tsx", "py", "rb", "go", "rs", "java", "cs",
@@ -260,30 +418,50 @@ struct FilePreviewView: View {
         if codeExts.contains(ext) {
             let language = SyntaxHighlighter.Language.from(extension: ext)
             do {
-                content = try String(contentsOf: file.url, encoding: .utf8)
-                previewType = .code(language)
+                let str = try String(contentsOf: file.url, encoding: .utf8)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    content = str
+                    previewType = .code(language)
+                    isLoading = false
+                }
             } catch {
-                previewType = .unsupported
+                await MainActor.run {
+                    previewType = .unsupported
+                    isLoading = false
+                }
             }
-            isLoading = false
             return
         }
         
+        guard !Task.isCancelled else { return }
+        
         // Text files
         do {
-            content = try String(contentsOf: file.url, encoding: .utf8)
-            previewType = .text
+            let str = try String(contentsOf: file.url, encoding: .utf8)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                content = str
+                previewType = .text
+                isLoading = false
+            }
         } catch {
             // Try other encodings
             if let data = try? Data(contentsOf: file.url),
                let str = String(data: data, encoding: .isoLatin1) {
-                content = str
-                previewType = .text
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    content = str
+                    previewType = .text
+                    isLoading = false
+                }
             } else {
-                previewType = .unsupported
+                await MainActor.run {
+                    previewType = .unsupported
+                    isLoading = false
+                }
             }
         }
-        isLoading = false
     }
     
     private func formatSize(_ size: Int64) -> String {

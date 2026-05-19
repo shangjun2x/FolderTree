@@ -452,7 +452,32 @@ function getFileIcon(filename, isFolder = false, isOpen = false) {
 async function openFile(filePath) {
   const result = await window.api.readFile(filePath);
   if (result.error) {
-    previewPanel.innerHTML = `<p class="placeholder">Error: ${result.error}</p>`;
+    // Handle specific error types
+    if (result.type === 'fileTooLarge') {
+      previewPanel.innerHTML = `
+        <div class="placeholder">
+          <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+          <p style="font-weight:bold;margin-bottom:8px;">File too large to preview</p>
+          <p style="color:#888;margin-bottom:16px;">Files larger than 100 MB cannot be previewed</p>
+        </div>`;
+    } else if (result.type === 'notAllowed') {
+      previewPanel.innerHTML = `
+        <div class="placeholder">
+          <div style="font-size:48px;margin-bottom:16px;">🚫</div>
+          <p style="font-weight:bold;margin-bottom:8px;">File type not in whitelist</p>
+          <p style="color:#888;margin-bottom:16px;">${result.error}</p>
+          <button onclick="openSettingsModal()" style="padding:8px 16px;cursor:pointer;">Open Settings</button>
+        </div>`;
+    } else if (result.type === 'timeout') {
+      previewPanel.innerHTML = `
+        <div class="placeholder">
+          <div style="font-size:48px;margin-bottom:16px;">⏱️</div>
+          <p style="font-weight:bold;margin-bottom:8px;">Preview timed out</p>
+          <p style="color:#888;margin-bottom:16px;">File took too long to load (&gt;10s)</p>
+        </div>`;
+    } else {
+      previewPanel.innerHTML = `<p class="placeholder">Error: ${result.error}</p>`;
+    }
     sourceCode.textContent = '';
     return;
   }
@@ -945,3 +970,124 @@ function updateView() {
     tabContent.classList.add('split');
   }
 }
+
+// Settings Modal
+let settingsModal = null;
+
+async function openSettingsModal() {
+  if (settingsModal) {
+    settingsModal.style.display = 'flex';
+    return;
+  }
+  
+  const settings = await window.api.getPreviewSettings();
+  
+  settingsModal = document.createElement('div');
+  settingsModal.id = 'settings-modal';
+  settingsModal.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;
+  `;
+  
+  settingsModal.innerHTML = `
+    <div style="background: var(--bg-primary, #1e1e1e); border-radius: 8px; padding: 20px; width: 500px; max-height: 80vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 style="margin: 0;">Preview Settings</h3>
+        <button id="close-settings" style="background: none; border: none; font-size: 20px; cursor: pointer; color: inherit;">×</button>
+      </div>
+      
+      <div style="margin-bottom: 16px;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="whitelist-enabled" ${settings.isWhitelistEnabled ? 'checked' : ''}>
+          <span>Enable file type whitelist</span>
+        </label>
+      </div>
+      
+      <div id="whitelist-section" style="display: ${settings.isWhitelistEnabled ? 'block' : 'none'};">
+        <div style="margin-bottom: 12px; display: flex; gap: 8px;">
+          <input type="text" id="new-ext" placeholder="Add extension (e.g. txt)" style="flex: 1; padding: 6px 10px; border: 1px solid #444; border-radius: 4px; background: #2d2d2d; color: inherit;">
+          <button id="add-ext" style="padding: 6px 12px; cursor: pointer;">Add</button>
+        </div>
+        
+        <div id="whitelist-tags" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; padding: 8px; background: #2d2d2d; border-radius: 4px;">
+          ${settings.whitelist.map(ext => `
+            <span class="ext-tag" data-ext="${ext}" style="background: #444; padding: 4px 8px; border-radius: 4px; display: flex; align-items: center; gap: 4px; font-size: 12px;">
+              ${ext}
+              <span class="remove-ext" style="cursor: pointer; opacity: 0.7;">×</span>
+            </span>
+          `).join('')}
+        </div>
+        
+        <button id="reset-whitelist" style="margin-top: 12px; padding: 6px 12px; cursor: pointer;">Reset to Default</button>
+      </div>
+      
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #444; color: #888; font-size: 12px;">
+        <p>• Files larger than 100 MB will not be previewed</p>
+        <p>• Preview will timeout after 10 seconds</p>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(settingsModal);
+  
+  // Event handlers
+  document.getElementById('close-settings').onclick = () => settingsModal.style.display = 'none';
+  settingsModal.onclick = (e) => { if (e.target === settingsModal) settingsModal.style.display = 'none'; };
+  
+  document.getElementById('whitelist-enabled').onchange = async (e) => {
+    const section = document.getElementById('whitelist-section');
+    section.style.display = e.target.checked ? 'block' : 'none';
+    await window.api.setPreviewSettings({ isWhitelistEnabled: e.target.checked });
+  };
+  
+  document.getElementById('add-ext').onclick = async () => {
+    const input = document.getElementById('new-ext');
+    const ext = input.value.trim().toLowerCase().replace(/^\./, '');
+    if (!ext) return;
+    
+    const settings = await window.api.getPreviewSettings();
+    if (!settings.whitelist.includes(ext)) {
+      settings.whitelist.push(ext);
+      await window.api.setPreviewSettings({ whitelist: settings.whitelist });
+      refreshWhitelistTags();
+    }
+    input.value = '';
+  };
+  
+  document.getElementById('reset-whitelist').onclick = async () => {
+    await window.api.resetPreviewWhitelist();
+    refreshWhitelistTags();
+  };
+  
+  document.getElementById('whitelist-tags').onclick = async (e) => {
+    if (e.target.classList.contains('remove-ext')) {
+      const tag = e.target.closest('.ext-tag');
+      const ext = tag.dataset.ext;
+      const settings = await window.api.getPreviewSettings();
+      const newList = settings.whitelist.filter(x => x !== ext);
+      await window.api.setPreviewSettings({ whitelist: newList });
+      tag.remove();
+    }
+  };
+}
+
+async function refreshWhitelistTags() {
+  const settings = await window.api.getPreviewSettings();
+  const container = document.getElementById('whitelist-tags');
+  if (!container) return;
+  
+  container.innerHTML = settings.whitelist.map(ext => `
+    <span class="ext-tag" data-ext="${ext}" style="background: #444; padding: 4px 8px; border-radius: 4px; display: flex; align-items: center; gap: 4px; font-size: 12px;">
+      ${ext}
+      <span class="remove-ext" style="cursor: pointer; opacity: 0.7;">×</span>
+    </span>
+  `).join('');
+}
+
+// Keyboard shortcut for settings
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+    e.preventDefault();
+    openSettingsModal();
+  }
+});
