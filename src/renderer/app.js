@@ -1,6 +1,9 @@
 // State
 let currentFile = null;
 let currentTab = 'preview';
+let currentFolderPath = null;
+let draggedItem = null;
+let expandedPaths = new Set(); // Track expanded folders
 
 // DOM elements
 const treeContainer = document.getElementById('tree-container');
@@ -16,6 +19,7 @@ document.getElementById('btn-open').addEventListener('click', async () => {
   const folderPath = await window.api.openFolder();
   if (!folderPath) return;
 
+  currentFolderPath = folderPath;
   currentPathLabel.textContent = folderPath;
   const tree = await window.api.readDir(folderPath);
 
@@ -26,6 +30,15 @@ document.getElementById('btn-open').addEventListener('click', async () => {
 
   renderTree(tree);
 });
+
+// Refresh tree
+async function refreshTree() {
+  if (!currentFolderPath) return;
+  const tree = await window.api.readDir(currentFolderPath);
+  if (!tree.error) {
+    renderTree(tree);
+  }
+}
 
 // Toggle right pane visibility
 document.getElementById('btn-toggle-right').addEventListener('click', () => {
@@ -126,7 +139,7 @@ document.addEventListener('keydown', (e) => {
         const icon = selectedItem.querySelector('.icon');
         arrow.classList.remove('expanded');
         children.classList.add('collapsed');
-        icon.textContent = '📁';
+        icon.innerHTML = getFileIcon('folder', true, false);
       } else {
         // Move to parent folder
         const parentChildren = wrapper.closest('.tree-children');
@@ -153,11 +166,46 @@ function selectTreeItem(item, openIfFile) {
 }
 
 // Render tree
+let rootDropInitialized = false;
+
 function renderTree(nodes) {
   treeContainer.innerHTML = '';
   const fragment = document.createDocumentFragment();
   nodes.forEach(node => fragment.appendChild(createTreeNode(node)));
   treeContainer.appendChild(fragment);
+  
+  // Make tree container a drop target for root (only once)
+  if (!rootDropInitialized) {
+    rootDropInitialized = true;
+    
+    treeContainer.addEventListener('dragover', (e) => {
+      if (draggedItem && e.target === treeContainer) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        treeContainer.classList.add('drag-over-root');
+      }
+    });
+    
+    treeContainer.addEventListener('dragleave', (e) => {
+      if (e.target === treeContainer) {
+        treeContainer.classList.remove('drag-over-root');
+      }
+    });
+    
+    treeContainer.addEventListener('drop', async (e) => {
+      if (e.target === treeContainer && draggedItem && currentFolderPath) {
+        e.preventDefault();
+        treeContainer.classList.remove('drag-over-root');
+        
+        const result = await window.api.moveItem(draggedItem.path, currentFolderPath);
+        if (result.error) {
+          alert(result.error);
+        } else {
+          refreshTree();
+        }
+      }
+    });
+  }
 }
 
 function createTreeNode(node) {
@@ -165,8 +213,51 @@ function createTreeNode(node) {
 
   const item = document.createElement('div');
   item.className = 'tree-item';
+  item.draggable = true;
+  item.dataset.path = node.path;
+  item.dataset.isDir = node.isDirectory ? '1' : '0';
+
+  // Drag events
+  item.addEventListener('dragstart', (e) => {
+    draggedItem = { path: node.path, isDirectory: node.isDirectory, element: wrapper };
+    item.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  item.addEventListener('dragend', () => {
+    item.classList.remove('dragging');
+    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    draggedItem = null;
+  });
 
   if (node.isDirectory) {
+    // Drop target for folders
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (draggedItem && draggedItem.path !== node.path) {
+        e.dataTransfer.dropEffect = 'move';
+        item.classList.add('drag-over');
+      }
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over');
+    });
+
+    item.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      
+      if (draggedItem && draggedItem.path !== node.path) {
+        const result = await window.api.moveItem(draggedItem.path, node.path);
+        if (result.error) {
+          alert(result.error);
+        } else {
+          refreshTree();
+        }
+      }
+    });
+
     const arrow = document.createElement('span');
     arrow.className = 'arrow';
     arrow.textContent = '▶';
@@ -174,7 +265,7 @@ function createTreeNode(node) {
 
     const icon = document.createElement('span');
     icon.className = 'icon';
-    icon.textContent = '📁';
+    icon.innerHTML = getFileIcon(node.name, true, false);
     item.appendChild(icon);
 
     const name = document.createElement('span');
@@ -183,18 +274,55 @@ function createTreeNode(node) {
 
     wrapper.appendChild(item);
 
+    // Children container (empty initially for lazy loading)
     const children = document.createElement('div');
     children.className = 'tree-children collapsed';
-    if (node.children) {
-      node.children.forEach(child => children.appendChild(createTreeNode(child)));
-    }
+    let childrenLoaded = false;
+    
     wrapper.appendChild(children);
 
-    item.addEventListener('click', (e) => {
+    // Auto-expand if was previously expanded
+    const autoExpand = async () => {
+      if (expandedPaths.has(node.path) && !childrenLoaded && node.hasChildren) {
+        childrenLoaded = true;
+        const childNodes = await window.api.readDir(node.path);
+        if (!childNodes.error) {
+          childNodes.forEach(child => children.appendChild(createTreeNode(child)));
+        }
+        arrow.classList.add('expanded');
+        children.classList.remove('collapsed');
+        icon.innerHTML = getFileIcon(node.name, true, true);
+      }
+    };
+    autoExpand();
+
+    item.addEventListener('click', async (e) => {
       e.stopPropagation();
+      
+      // Lazy load children on first expand
+      if (!childrenLoaded && node.hasChildren) {
+        childrenLoaded = true;
+        item.classList.add('loading');
+        
+        const childNodes = await window.api.readDir(node.path);
+        if (!childNodes.error) {
+          childNodes.forEach(child => children.appendChild(createTreeNode(child)));
+        }
+        
+        item.classList.remove('loading');
+      }
+      
       arrow.classList.toggle('expanded');
       children.classList.toggle('collapsed');
-      icon.textContent = children.classList.contains('collapsed') ? '📁' : '📂';
+      
+      // Track expanded state
+      if (children.classList.contains('collapsed')) {
+        expandedPaths.delete(node.path);
+      } else {
+        expandedPaths.add(node.path);
+      }
+      
+      icon.innerHTML = getFileIcon(node.name, true, !children.classList.contains('collapsed'));
     });
   } else {
     const spacer = document.createElement('span');
@@ -204,7 +332,7 @@ function createTreeNode(node) {
 
     const icon = document.createElement('span');
     icon.className = 'icon';
-    icon.textContent = getFileIcon(node.name);
+    icon.innerHTML = getFileIcon(node.name);
     item.appendChild(icon);
 
     const name = document.createElement('span');
@@ -224,22 +352,81 @@ function createTreeNode(node) {
   return wrapper;
 }
 
-// File icons
-function getFileIcon(filename) {
+// File icons - SVG based for better styling
+function getFileIcon(filename, isFolder = false, isOpen = false) {
+  if (isFolder) {
+    return isOpen ? 
+      `<svg viewBox="0 0 16 16" class="file-icon folder-open"><path fill="currentColor" d="M6 4H1.5l-.5.5V6h4l1-2zM1.5 7l-.5.5v7l.5.5h13l.5-.5v-7l-.5-.5h-13zM1 14V8h14v6H1z"/><path fill="currentColor" d="M14.5 5h-7l-.5.5V6h8v-.5l-.5-.5z"/></svg>` :
+      `<svg viewBox="0 0 16 16" class="file-icon folder"><path fill="currentColor" d="M14.5 3H7.71l-.85-.85L6.51 2h-5l-.5.5v11l.5.5h13l.5-.5v-10L14.5 3zm-.51 10H2V3h4.29l.85.85.36.15H14v9z"/></svg>`;
+  }
+  
   const ext = filename.split('.').pop().toLowerCase();
-  const icons = {
-    js: '📜', ts: '📜', jsx: '📜', tsx: '📜',
-    html: '🌐', htm: '🌐',
-    css: '🎨', scss: '🎨', less: '🎨',
-    json: '📋', xml: '📋', yaml: '📋', yml: '📋',
-    md: '📝', txt: '📝', log: '📝',
-    png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', ico: '🖼️',
-    pdf: '📕',
-    zip: '📦', tar: '📦', gz: '📦',
-    py: '🐍', rb: '💎', go: '🔷', rs: '🦀', java: '☕', cs: '🔮',
-    sh: '⚙️', bat: '⚙️', ps1: '⚙️',
+  const iconMap = {
+    // JavaScript/TypeScript
+    js: { color: '#f7df1e', icon: 'JS' },
+    ts: { color: '#3178c6', icon: 'TS' },
+    jsx: { color: '#61dafb', icon: 'JSX' },
+    tsx: { color: '#3178c6', icon: 'TSX' },
+    // Web
+    html: { color: '#e34c26', icon: '&lt;/&gt;' },
+    htm: { color: '#e34c26', icon: '&lt;/&gt;' },
+    css: { color: '#264de4', icon: '#' },
+    scss: { color: '#cc6699', icon: 'S' },
+    less: { color: '#1d365d', icon: 'L' },
+    // Data
+    json: { color: '#cbcb41', icon: '{}' },
+    xml: { color: '#f60', icon: '&lt;&gt;' },
+    yaml: { color: '#cb171e', icon: 'Y' },
+    yml: { color: '#cb171e', icon: 'Y' },
+    // Docs
+    md: { color: '#519aba', icon: 'M↓' },
+    txt: { color: '#89e051', icon: 'T' },
+    log: { color: '#999', icon: '≡' },
+    pdf: { color: '#e44d26', icon: 'PDF' },
+    // Images
+    png: { color: '#a074c4', icon: '🖼' },
+    jpg: { color: '#a074c4', icon: '🖼' },
+    jpeg: { color: '#a074c4', icon: '🖼' },
+    gif: { color: '#a074c4', icon: '🖼' },
+    svg: { color: '#ffb13b', icon: 'SVG' },
+    ico: { color: '#a074c4', icon: '◐' },
+    tif: { color: '#a074c4', icon: '🖼' },
+    tiff: { color: '#a074c4', icon: '🖼' },
+    // Archives
+    zip: { color: '#e8a87c', icon: '📦' },
+    tar: { color: '#e8a87c', icon: '📦' },
+    gz: { color: '#e8a87c', icon: '📦' },
+    // Languages
+    py: { color: '#3572A5', icon: 'PY' },
+    rb: { color: '#cc342d', icon: 'RB' },
+    go: { color: '#00add8', icon: 'GO' },
+    rs: { color: '#dea584', icon: 'RS' },
+    java: { color: '#b07219', icon: 'J' },
+    cs: { color: '#178600', icon: 'C#' },
+    c: { color: '#555555', icon: 'C' },
+    cpp: { color: '#f34b7d', icon: 'C++' },
+    h: { color: '#555555', icon: 'H' },
+    // Shell
+    sh: { color: '#89e051', icon: '$' },
+    bat: { color: '#c1f12e', icon: '>' },
+    ps1: { color: '#012456', icon: 'PS' },
+    // Config
+    env: { color: '#ecd53f', icon: '⚙' },
+    gitignore: { color: '#f14e32', icon: 'G' },
+    // Office
+    doc: { color: '#2b579a', icon: 'W' },
+    docx: { color: '#2b579a', icon: 'W' },
+    xls: { color: '#217346', icon: 'X' },
+    xlsx: { color: '#217346', icon: 'X' },
+    ppt: { color: '#d24726', icon: 'P' },
+    pptx: { color: '#d24726', icon: 'P' },
   };
-  return icons[ext] || '📄';
+  
+  const info = iconMap[ext];
+  if (info) {
+    return `<span class="file-icon-badge" style="background:${info.color};">${info.icon}</span>`;
+  }
+  return `<svg viewBox="0 0 16 16" class="file-icon file"><path fill="currentColor" d="M13.71 4.29l-3-3L10 1H4L3 2v12l1 1h9l1-1V5l-.29-.71zM13 14H4V2h5v4h4v8z"/></svg>`;
 }
 
 // Open and display file
@@ -252,6 +439,26 @@ async function openFile(filePath) {
   }
 
   currentFile = { path: filePath, content: result.content, type: result.type };
+
+  // Check if file is binary (no meaningful source to show)
+  const binaryTypes = ['image', 'tiff', 'pdf', 'binary'];
+  const isBinary = binaryTypes.includes(result.type);
+  
+  // Show/hide Source and Split tabs based on file type
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(tab => {
+    const tabName = tab.dataset.tab;
+    if (tabName === 'source' || tabName === 'split') {
+      tab.style.display = isBinary ? 'none' : '';
+    }
+  });
+  
+  // If currently on source/split tab and file is binary, switch to preview
+  if (isBinary && (currentTab === 'source' || currentTab === 'split')) {
+    currentTab = 'preview';
+    tabs.forEach(t => t.classList.remove('active'));
+    document.querySelector('.tab[data-tab="preview"]').classList.add('active');
+  }
 
   // Source with syntax highlighting
   const ext = filePath.split('.').pop().toLowerCase();
@@ -294,7 +501,8 @@ function renderPreview(filePath, content, type) {
   }
 
   if (type === 'pdf') {
-    previewPanel.innerHTML = `<div class="office-preview" style="background:white;color:#333;padding:20px;border-radius:4px;">${content}</div>`;
+    // Embed PDF directly to preserve page format
+    previewPanel.innerHTML = `<embed src="file://${content}" type="application/pdf" style="width:100%;height:100%;border:none;">`;
     return;
   }
 
@@ -353,12 +561,28 @@ function renderPreview(filePath, content, type) {
     return;
   }
 
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'bmp', 'webp'].includes(ext)) {
+  if (type === 'tiff') {
+    // TIFF is converted to base64 PNG by main process
+    previewPanel.innerHTML = `<img src="${content}" alt="TIFF preview">`;
+  } else if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'bmp', 'webp'].includes(ext)) {
     previewPanel.innerHTML = `<img src="file://${filePath.replace(/\\/g, '/')}" alt="Image preview">`;
   } else if (type === 'binary') {
     previewPanel.innerHTML = `<p class="placeholder">Binary file (${ext}) — no text preview available</p>`;
   } else if (['md', 'markdown'].includes(ext)) {
     previewPanel.innerHTML = `<div class="markdown">${renderMarkdown(content)}</div>`;
+  } else if (ext === 'json') {
+    // Collapsible JSON tree view
+    try {
+      const parsed = JSON.parse(content);
+      previewPanel.innerHTML = '';
+      const jsonTree = buildJsonTree(parsed);
+      previewPanel.appendChild(jsonTree);
+    } catch (e) {
+      // If JSON is invalid, show as plain text
+      previewPanel.innerHTML = '';
+      const foldView = buildFoldableCode(content, filePath);
+      previewPanel.appendChild(foldView);
+    }
   } else if (['html', 'htm'].includes(ext)) {
     previewPanel.innerHTML = `<iframe srcdoc="${escapeHtml(content)}" style="width:100%;height:100%;border:none;background:white;"></iframe>`;
   } else {
@@ -560,6 +784,112 @@ function renderMarkdown(text) {
 
 function escapeHtml(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Build collapsible JSON tree view
+function buildJsonTree(data, key = null, depth = 0) {
+  const container = document.createElement('div');
+  container.className = 'json-tree';
+  if (depth === 0) {
+    container.style.cssText = 'font-family:monospace;font-size:13px;padding:12px;background:var(--bg-secondary);color:var(--text-primary);overflow:auto;height:100%;';
+  }
+
+  const indent = '  '.repeat(depth);
+  const isArray = Array.isArray(data);
+  const isObject = data !== null && typeof data === 'object';
+
+  if (isObject) {
+    const entries = isArray ? data.map((v, i) => [i, v]) : Object.entries(data);
+    const bracket = isArray ? '[' : '{';
+    const closeBracket = isArray ? ']' : '}';
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:flex-start;';
+
+    const toggle = document.createElement('span');
+    toggle.textContent = '▼ ';
+    toggle.style.cssText = 'cursor:pointer;color:#888;user-select:none;min-width:16px;';
+
+    const keySpan = document.createElement('span');
+    if (key !== null) {
+      keySpan.innerHTML = `<span class="json-key">"${key}"</span><span class="json-colon">: </span>`;
+    }
+
+    const bracketSpan = document.createElement('span');
+    bracketSpan.textContent = bracket;
+    bracketSpan.className = 'json-bracket';
+
+    const countSpan = document.createElement('span');
+    countSpan.textContent = ` // ${entries.length} ${isArray ? 'items' : 'keys'}`;
+    countSpan.className = 'json-comment';
+    countSpan.style.marginLeft = '8px';
+
+    row.appendChild(toggle);
+    row.appendChild(keySpan);
+    row.appendChild(bracketSpan);
+    row.appendChild(countSpan);
+    container.appendChild(row);
+
+    const childContainer = document.createElement('div');
+    childContainer.style.cssText = 'margin-left:20px;';
+
+    entries.forEach(([k, v], idx) => {
+      const child = buildJsonTree(v, isArray ? null : k, depth + 1);
+      if (idx < entries.length - 1 && typeof v !== 'object') {
+        child.querySelector('span:last-child').textContent += ',';
+      } else if (idx < entries.length - 1 && typeof v === 'object') {
+        const lastSpan = document.createElement('span');
+        lastSpan.textContent = ',';
+        lastSpan.className = 'json-colon';
+        child.appendChild(lastSpan);
+      }
+      childContainer.appendChild(child);
+    });
+
+    container.appendChild(childContainer);
+
+    const closeRow = document.createElement('div');
+    closeRow.innerHTML = `<span style="min-width:16px;display:inline-block;"></span><span class="json-bracket">${closeBracket}</span>`;
+    container.appendChild(closeRow);
+
+    toggle.addEventListener('click', () => {
+      const isCollapsed = childContainer.style.display === 'none';
+      childContainer.style.display = isCollapsed ? 'block' : 'none';
+      closeRow.style.display = isCollapsed ? 'block' : 'none';
+      toggle.textContent = isCollapsed ? '▼ ' : '▶ ';
+      countSpan.style.display = isCollapsed ? 'inline' : 'inline';
+      bracketSpan.textContent = isCollapsed ? bracket : bracket + '...' + closeBracket;
+    });
+  } else {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;';
+
+    const spacer = document.createElement('span');
+    spacer.style.minWidth = '16px';
+
+    const keySpan = document.createElement('span');
+    if (key !== null) {
+      keySpan.innerHTML = `<span class="json-key">"${key}"</span><span class="json-colon">: </span>`;
+    }
+
+    const valueSpan = document.createElement('span');
+    if (typeof data === 'string') {
+      valueSpan.innerHTML = `<span class="json-string">"${escapeHtml(data)}"</span>`;
+    } else if (typeof data === 'number') {
+      valueSpan.innerHTML = `<span class="json-number">${data}</span>`;
+    } else if (typeof data === 'boolean') {
+      valueSpan.innerHTML = `<span class="json-bool">${data}</span>`;
+    } else if (data === null) {
+      valueSpan.innerHTML = `<span class="json-null">null</span>`;
+    }
+
+    row.appendChild(spacer);
+    row.appendChild(keySpan);
+    row.appendChild(valueSpan);
+    container.appendChild(row);
+  }
+
+  return container;
 }
 
 // Update panel visibility based on current tab

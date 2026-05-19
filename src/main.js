@@ -11,7 +11,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      plugins: true
     }
   });
 
@@ -37,10 +38,10 @@ ipcMain.handle('open-folder', async () => {
   return result.filePaths[0];
 });
 
-// IPC: Read directory tree
+// IPC: Read directory (shallow - one level only for lazy loading)
 ipcMain.handle('read-dir', async (event, dirPath) => {
   try {
-    return buildTree(dirPath);
+    return buildTreeShallow(dirPath);
   } catch (err) {
     return { error: err.message };
   }
@@ -128,24 +129,26 @@ ipcMain.handle('read-file', async (event, filePath) => {
     }
 
     if (ext === '.pdf') {
+      // Return file path for native PDF embedding (preserves page format)
+      return { content: filePath, path: filePath, size: stat.size, type: 'pdf' };
+    }
+
+    // TIFF: convert to base64 PNG since Chromium doesn't support TIFF natively
+    if (ext === '.tif' || ext === '.tiff') {
       try {
-        const pdfParse = require('pdf-parse');
-        const buffer = fs.readFileSync(filePath);
-        const data = await pdfParse(buffer);
-        const html = `<div style="font-family:sans-serif;line-height:1.6;">
-          <div style="color:#888;margin-bottom:12px;font-size:12px;">Pages: ${data.numpages} | Characters: ${data.text.length}</div>
-          <pre style="white-space:pre-wrap;font-size:14px;">${data.text.replace(/</g, '&lt;')}</pre>
-        </div>`;
-        return { content: html, path: filePath, size: stat.size, type: 'pdf' };
+        const sharp = require('sharp');
+        const pngBuffer = await sharp(filePath).png().toBuffer();
+        const base64 = pngBuffer.toString('base64');
+        return { content: `data:image/png;base64,${base64}`, path: filePath, size: stat.size, type: 'tiff' };
       } catch (e) {
-        return { error: 'Failed to parse PDF: ' + e.message };
+        return { error: 'Failed to convert TIFF: ' + e.message };
       }
     }
 
     // Binary file check - skip reading as utf-8
     const binaryExts = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.zip', '.tar', '.gz', '.exe', '.dll'];
     if (binaryExts.includes(ext)) {
-      return { content: '', path: filePath, size: stat.size, type: 'binary' };
+      return { content: '', path: filePath, size: stat.size, type: 'image' };
     }
 
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -155,12 +158,11 @@ ipcMain.handle('read-file', async (event, filePath) => {
   }
 });
 
-function buildTree(dirPath, depth = 0, maxDepth = 10) {
-  if (depth > maxDepth) return [];
+// Build shallow tree (one level only)
+function buildTreeShallow(dirPath) {
   const entries = fs.readdirSync(dirPath, { withFileTypes: true });
   const result = [];
 
-  // Sort: folders first, then files, alphabetical
   const sorted = entries.sort((a, b) => {
     if (a.isDirectory() && !b.isDirectory()) return -1;
     if (!a.isDirectory() && b.isDirectory()) return 1;
@@ -168,7 +170,6 @@ function buildTree(dirPath, depth = 0, maxDepth = 10) {
   });
 
   for (const entry of sorted) {
-    // Skip hidden files/folders
     if (entry.name.startsWith('.')) continue;
 
     const fullPath = path.join(dirPath, entry.name);
@@ -178,8 +179,10 @@ function buildTree(dirPath, depth = 0, maxDepth = 10) {
       isDirectory: entry.isDirectory()
     };
 
+    // Mark folders as having children (lazy load later)
     if (entry.isDirectory()) {
-      node.children = buildTree(fullPath, depth + 1, maxDepth);
+      node.hasChildren = true;
+      node.children = null; // Will be loaded on expand
     }
 
     result.push(node);
@@ -187,3 +190,26 @@ function buildTree(dirPath, depth = 0, maxDepth = 10) {
 
   return result;
 }
+
+// IPC: Move file or folder
+ipcMain.handle('move-item', async (event, sourcePath, destFolder) => {
+  try {
+    const itemName = path.basename(sourcePath);
+    const destPath = path.join(destFolder, itemName);
+    
+    // Check if destination already exists
+    if (fs.existsSync(destPath)) {
+      return { error: `"${itemName}" already exists in destination folder` };
+    }
+    
+    // Check if trying to move folder into itself
+    if (sourcePath === destFolder || destFolder.startsWith(sourcePath + path.sep)) {
+      return { error: 'Cannot move a folder into itself' };
+    }
+    
+    fs.renameSync(sourcePath, destPath);
+    return { success: true, newPath: destPath };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
