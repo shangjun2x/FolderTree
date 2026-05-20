@@ -159,28 +159,36 @@ struct FilePreviewView: View {
     private var previewContent: some View {
         switch previewType {
         case .text:
-            ScrollView {
-                Text(content)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
+            GeometryReader { geometry in
+                ScrollView {
+                    Text(content)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
+                        .padding()
+                }
             }
             
         case .code(let language):
-            ScrollView([.horizontal, .vertical]) {
-                CollapsibleCodeView(content: content, language: language)
-                    .padding()
+            GeometryReader { geometry in
+                ScrollView([.horizontal, .vertical]) {
+                    CollapsibleCodeView(content: content, language: language)
+                        .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
+                        .padding()
+                }
             }
             .background(Color(NSColor.textBackgroundColor))
             
         case .image:
             if let image = nsImage {
-                ScrollView([.horizontal, .vertical]) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .padding()
+                GeometryReader { geometry in
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: geometry.size.width, maxHeight: geometry.size.height)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
                 }
                 .background(Color(NSColor.textBackgroundColor))
             }
@@ -267,12 +275,14 @@ struct FilePreviewView: View {
     
     @ViewBuilder
     private var sourceView: some View {
-        ScrollView([.horizontal, .vertical]) {
-            Text(content)
-                .font(.system(size: 12, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+        GeometryReader { geometry in
+            ScrollView([.horizontal, .vertical]) {
+                Text(content)
+                    .font(.system(size: 12, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
+                    .padding()
+            }
         }
         .background(Color(NSColor.textBackgroundColor))
     }
