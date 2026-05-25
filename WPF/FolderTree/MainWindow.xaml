@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:FolderTree"
         Title="FolderTree" Height="700" Width="1100"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{DynamicResource BackgroundBrush}"
         WindowStartupLocation="CenterScreen">
     
     <Grid>
@@ -14,8 +14,8 @@
         </Grid.ColumnDefinitions>
         
         <!-- Left Panel: Tree View -->
-        <Border Grid.Column="0" Background="{StaticResource SidebarBrush}" 
-                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+        <Border Grid.Column="0" Background="{DynamicResource SidebarBrush}" 
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -39,7 +39,7 @@
                         
                         <TextBlock Grid.Column="0" Text="📁" FontSize="18" Margin="0,0,8,0" VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="1" Text="FolderTree" FontSize="15" FontWeight="SemiBold" 
-                                   Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center"/>
                         <Button Grid.Column="2" Content="📂 Open" Click="OpenFolder_Click" 
                                 FontSize="12" Padding="10,5"/>
                     </Grid>
@@ -75,11 +75,11 @@
         </Border>
         
         <!-- Splitter -->
-        <GridSplitter Grid.Column="1" Width="3" Background="{StaticResource BorderBrush}" 
+        <GridSplitter Grid.Column="1" Width="3" Background="{DynamicResource BorderBrush}" 
                       HorizontalAlignment="Stretch" Cursor="SizeWE"/>
         
         <!-- Right Panel: Preview -->
-        <Border Grid.Column="2" Background="{StaticResource BackgroundBrush}">
+        <Border Grid.Column="2" Background="{DynamicResource BackgroundBrush}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -88,8 +88,8 @@
                 </Grid.RowDefinitions>
                 
                 <!-- File Header -->
-                <Border Grid.Row="0" Padding="16,12" Background="{StaticResource SidebarBrush}"
-                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                <Border Grid.Row="0" Padding="16,12" Background="{DynamicResource SidebarBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -100,17 +100,17 @@
                         <TextBlock x:Name="FileIcon" Grid.Column="0" FontSize="20" Margin="0,0,10,0" VerticalAlignment="Center"/>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
                             <TextBlock x:Name="FileName" FontSize="14" FontWeight="SemiBold" 
-                                       Foreground="{StaticResource TextBrush}"/>
+                                       Foreground="{DynamicResource TextBrush}"/>
                             <TextBlock x:Name="FileSize" FontSize="11" 
-                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <RadioButton x:Name="PreviewTab" Content="Preview" IsChecked="True" 
                                          GroupName="Tabs" Margin="0,0,8,0" Click="Tab_Click"
-                                         Foreground="{StaticResource TextBrush}"/>
+                                         Foreground="{DynamicResource TextBrush}"/>
                             <RadioButton x:Name="SourceTab" Content="Source" 
                                          GroupName="Tabs" Margin="0,0,8,0" Click="Tab_Click"
-                                         Foreground="{StaticResource TextBrush}"/>
+                                         Foreground="{DynamicResource TextBrush}"/>
                             <Button x:Name="OpenInExplorerBtn" Content="📁" Click="OpenInExplorer_Click"
                                     ToolTip="Show in Explorer" Padding="6,4" FontSize="14"/>
                         </StackPanel>
@@ -121,7 +121,7 @@
                 <ScrollViewer Grid.Row="2" x:Name="PreviewScroller" 
                               HorizontalScrollBarVisibility="Auto" 
                               VerticalScrollBarVisibility="Auto"
-                              Background="{StaticResource BackgroundBrush}"
+                              Background="{DynamicResource BackgroundBrush}"
                               Visibility="Collapsed">
                     <Grid x:Name="PreviewContent" Margin="16"/>
                 </ScrollViewer>
@@ -136,7 +136,7 @@
                 <StackPanel Grid.Row="2" x:Name="Placeholder" VerticalAlignment="Center" HorizontalAlignment="Center">
                     <TextBlock Text="📄" FontSize="64" HorizontalAlignment="Center" Opacity="0.3"/>
                     <TextBlock Text="Select a file to preview" FontSize="14" 
-                               Foreground="{StaticResource TextSecondaryBrush}" 
+                               Foreground="{DynamicResource TextSecondaryBrush}" 
                                HorizontalAlignment="Center" Margin="0,12,0,0"/>
                 </StackPanel>
             </Grid>

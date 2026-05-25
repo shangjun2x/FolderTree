@@ -43,6 +43,18 @@ namespace FolderTree
         public MainWindow()
         {
             InitializeComponent();
+            ContentRendered += (s, e) => App.ApplyTitleBarTheme(this, !IsLightTheme());
+        }
+
+        private static bool IsLightTheme()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                var value = key?.GetValue("AppsUseLightTheme");
+                return value is int intValue && intValue == 1;
+            }
+            catch { return false; }
         }
 
         private void OpenFolder_Click(object sender, RoutedEventArgs e)
@@ -423,32 +435,25 @@ namespace FolderTree
                 IsReadOnly = true,
                 FontFamily = new FontFamily("Consolas, Courier New"),
                 FontSize = 13,
-                Foreground = (SolidColorBrush)FindResource("TextBrush")
+                Foreground = (SolidColorBrush)FindResource("TextBrush"),
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
             };
 
             var paragraph = new Paragraph();
             var highlighter = new SyntaxHighlighter(ext);
-            var lines = code.Split('\n');
-            
-            // Find fold regions if collapsible
-            var foldRegions = collapsible ? FindFoldRegions(lines) : new List<(int start, int end)>();
 
-            for (int i = 0; i < lines.Length; i++)
+            foreach (var line in code.Split('\n'))
             {
-                // Add line number
-                paragraph.Inlines.Add(new Run($"{(i + 1).ToString().PadLeft(4)}  ")
-                {
-                    Foreground = (SolidColorBrush)FindResource("TextSecondaryBrush")
-                });
-
-                highlighter.HighlightLine(lines[i], paragraph);
+                highlighter.HighlightLine(line, paragraph);
                 paragraph.Inlines.Add(new LineBreak());
             }
 
             richTextBox.Document = new FlowDocument(paragraph)
             {
                 PagePadding = new Thickness(0),
-                Background = Brushes.Transparent
+                Background = Brushes.Transparent,
+                PageWidth = 2000
             };
 
             PreviewContent.Children.Add(richTextBox);
@@ -792,9 +797,17 @@ img {{ max-width: 100%; }}
                     continue;
                 }
 
-                // Other characters
-                paragraph.Inlines.Add(new Run(line[i].ToString()));
-                i++;
+                // Other characters (batch consecutive non-token chars)
+                {
+                    int start = i;
+                    while (i < line.Length && !char.IsLetterOrDigit(line[i]) && line[i] != '_' &&
+                           line[i] != '"' && line[i] != '\'' && line[i] != '#' &&
+                           !(i < line.Length - 1 && line[i] == '/' && line[i + 1] == '/'))
+                    {
+                        i++;
+                    }
+                    paragraph.Inlines.Add(new Run(line.Substring(start, i - start)));
+                }
             }
         }
     }
