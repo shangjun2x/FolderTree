@@ -44,6 +44,27 @@ namespace FolderTree
         {
             InitializeComponent();
             ContentRendered += (s, e) => App.ApplyTitleBarTheme(this, !IsLightTheme());
+            StateChanged += (s, e) => MaxRestoreBtn.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+        }
+
+        // Custom title bar handlers
+        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+                ToggleMaximize();
+            else
+                DragMove();
+        }
+
+        private void TitleBar_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) { }
+
+        private void MinimizeBtn_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+        private void MaximizeBtn_Click(object sender, RoutedEventArgs e) => ToggleMaximize();
+        private void CloseBtn_Click(object sender, RoutedEventArgs e) => Close();
+
+        private void ToggleMaximize()
+        {
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
         }
 
         private static bool IsLightTheme()
@@ -200,8 +221,8 @@ namespace FolderTree
             
             // Update header
             FileIcon.Text = item.Icon;
-            FileName.Text = item.Name;
-            FileSize.Text = FormatSize(item.Size);
+            FileName.Text = $"{item.Name}  ({FormatSize(item.Size)})";
+            FilePath.Text = item.FullPath;
 
             // Hide all preview types
             PreviewScroller.Visibility = Visibility.Collapsed;

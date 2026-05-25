@@ -22,6 +22,12 @@ namespace FolderTree
                 if (args.Category == UserPreferenceCategory.General)
                     Dispatcher.Invoke(ApplySystemTheme);
             };
+            DispatcherUnhandledException += (s, args) =>
+            {
+                System.IO.File.WriteAllText("crash.log", args.Exception.ToString());
+                MessageBox.Show(args.Exception.Message, "Error");
+                args.Handled = true;
+            };
         }
 
         private void ApplySystemTheme()
