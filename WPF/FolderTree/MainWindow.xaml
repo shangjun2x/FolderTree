@@ -23,8 +23,13 @@
                 </Grid.RowDefinitions>
                 
                 <!-- Header -->
-                <Border Grid.Row="0" Padding="12,10" 
-                        Background="#1A0078D4">
+                <Border Grid.Row="0" Padding="12,10">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                            <GradientStop Color="#26458FFC" Offset="0"/>
+                            <GradientStop Color="#268C6BFB" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -44,8 +49,19 @@
                 <TreeView x:Name="FolderTreeView" Grid.Row="1" 
                           Background="Transparent" BorderThickness="0"
                           SelectedItemChanged="FolderTreeView_SelectedItemChanged"
+                          AllowDrop="True"
                           VirtualizingPanel.IsVirtualizing="True"
                           VirtualizingPanel.VirtualizationMode="Recycling">
+                    <TreeView.ItemContainerStyle>
+                        <Style TargetType="TreeViewItem">
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                            <Setter Property="AllowDrop" Value="True"/>
+                            <EventSetter Event="PreviewMouseLeftButtonDown" Handler="TreeItem_PreviewMouseLeftButtonDown"/>
+                            <EventSetter Event="PreviewMouseMove" Handler="TreeItem_PreviewMouseMove"/>
+                            <EventSetter Event="Drop" Handler="TreeItem_Drop"/>
+                            <EventSetter Event="DragOver" Handler="TreeItem_DragOver"/>
+                        </Style>
+                    </TreeView.ItemContainerStyle>
                     <TreeView.ItemTemplate>
                         <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                             <StackPanel Orientation="Horizontal" Margin="2">
@@ -88,13 +104,15 @@
                             <TextBlock x:Name="FileSize" FontSize="11" 
                                        Foreground="{StaticResource TextSecondaryBrush}"/>
                         </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <RadioButton x:Name="PreviewTab" Content="Preview" IsChecked="True" 
                                          GroupName="Tabs" Margin="0,0,8,0" Click="Tab_Click"
                                          Foreground="{StaticResource TextBrush}"/>
                             <RadioButton x:Name="SourceTab" Content="Source" 
-                                         GroupName="Tabs" Click="Tab_Click"
+                                         GroupName="Tabs" Margin="0,0,8,0" Click="Tab_Click"
                                          Foreground="{StaticResource TextBrush}"/>
+                            <Button x:Name="OpenInExplorerBtn" Content="📁" Click="OpenInExplorer_Click"
+                                    ToolTip="Show in Explorer" Padding="6,4" FontSize="14"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -103,7 +121,8 @@
                 <ScrollViewer Grid.Row="2" x:Name="PreviewScroller" 
                               HorizontalScrollBarVisibility="Auto" 
                               VerticalScrollBarVisibility="Auto"
-                              Background="{StaticResource BackgroundBrush}">
+                              Background="{StaticResource BackgroundBrush}"
+                              Visibility="Collapsed">
                     <Grid x:Name="PreviewContent" Margin="16"/>
                 </ScrollViewer>
                 

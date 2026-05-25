@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
@@ -68,7 +69,7 @@ namespace FolderTree
 
         private void FolderTreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
-            if (e.NewValue is FileItem item && !item.IsDirectory)
+            if (e.NewValue is FileItem item && !item.IsDirectory && item.FullPath != "__loading__")
             {
                 _currentFile = item;
                 LoadPreview(item);
@@ -81,6 +82,101 @@ namespace FolderTree
             {
                 LoadPreview(_currentFile);
             }
+        }
+
+        private void OpenInExplorer_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentFile != null && File.Exists(_currentFile.FullPath))
+            {
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{_currentFile.FullPath}\"");
+            }
+            else if (_currentFile != null && Directory.Exists(_currentFile.FullPath))
+            {
+                System.Diagnostics.Process.Start("explorer.exe", _currentFile.FullPath);
+            }
+        }
+
+        // Drag & Drop support
+        private Point _dragStartPoint;
+        private FileItem? _draggedItem;
+
+        private void TreeItem_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _dragStartPoint = e.GetPosition(null);
+        }
+
+        private void TreeItem_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+
+            Point mousePos = e.GetPosition(null);
+            Vector diff = _dragStartPoint - mousePos;
+
+            if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+            {
+                var treeViewItem = sender as TreeViewItem;
+                if (treeViewItem?.DataContext is FileItem item && item.FullPath != "__loading__")
+                {
+                    _draggedItem = item;
+                    var data = new DataObject(DataFormats.Text, item.FullPath);
+                    DragDrop.DoDragDrop(treeViewItem, data, DragDropEffects.Move);
+                    _draggedItem = null;
+                }
+            }
+        }
+
+        private void TreeItem_DragOver(object sender, DragEventArgs e)
+        {
+            e.Effects = DragDropEffects.None;
+            
+            var treeViewItem = sender as TreeViewItem;
+            if (treeViewItem?.DataContext is FileItem targetItem && targetItem.IsDirectory)
+            {
+                string? sourcePath = e.Data.GetData(DataFormats.Text) as string;
+                if (sourcePath != null && sourcePath != targetItem.FullPath &&
+                    !targetItem.FullPath.StartsWith(sourcePath + Path.DirectorySeparatorChar))
+                {
+                    e.Effects = DragDropEffects.Move;
+                }
+            }
+            e.Handled = true;
+        }
+
+        private void TreeItem_Drop(object sender, DragEventArgs e)
+        {
+            var treeViewItem = sender as TreeViewItem;
+            if (treeViewItem?.DataContext is FileItem targetItem && targetItem.IsDirectory)
+            {
+                string? sourcePath = e.Data.GetData(DataFormats.Text) as string;
+                if (sourcePath == null) return;
+
+                string itemName = Path.GetFileName(sourcePath);
+                string destPath = Path.Combine(targetItem.FullPath, itemName);
+
+                if (sourcePath == targetItem.FullPath) return;
+                if (targetItem.FullPath.StartsWith(sourcePath + Path.DirectorySeparatorChar)) return;
+
+                try
+                {
+                    if (Directory.Exists(sourcePath))
+                        Directory.Move(sourcePath, destPath);
+                    else if (File.Exists(sourcePath))
+                        File.Move(sourcePath, destPath);
+
+                    // Refresh tree
+                    var rootItems = FolderTreeView.ItemsSource as ObservableCollection<FileItem>;
+                    if (rootItems?.Count > 0)
+                    {
+                        LoadFolder(rootItems[0].FullPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Move failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            e.Handled = true;
         }
 
         private void LoadPreview(FileItem item)
@@ -194,6 +290,13 @@ namespace FolderTree
                     if (ext == "json" && !isSourceView)
                     {
                         ShowJsonTree(_currentContent);
+                        return;
+                    }
+
+                    // Markdown rendered preview
+                    if ((ext == "md" || ext == "markdown") && !isSourceView)
+                    {
+                        ShowMarkdownPreview(_currentContent);
                         return;
                     }
 
@@ -325,10 +428,20 @@ namespace FolderTree
 
             var paragraph = new Paragraph();
             var highlighter = new SyntaxHighlighter(ext);
+            var lines = code.Split('\n');
             
-            foreach (var line in code.Split('\n'))
+            // Find fold regions if collapsible
+            var foldRegions = collapsible ? FindFoldRegions(lines) : new List<(int start, int end)>();
+
+            for (int i = 0; i < lines.Length; i++)
             {
-                highlighter.HighlightLine(line, paragraph);
+                // Add line number
+                paragraph.Inlines.Add(new Run($"{(i + 1).ToString().PadLeft(4)}  ")
+                {
+                    Foreground = (SolidColorBrush)FindResource("TextSecondaryBrush")
+                });
+
+                highlighter.HighlightLine(lines[i], paragraph);
                 paragraph.Inlines.Add(new LineBreak());
             }
 
@@ -340,6 +453,119 @@ namespace FolderTree
 
             PreviewContent.Children.Add(richTextBox);
             PreviewScroller.Visibility = Visibility.Visible;
+        }
+
+        private List<(int start, int end)> FindFoldRegions(string[] lines)
+        {
+            var regions = new List<(int start, int end)>();
+            var braceStack = new Stack<(char ch, int line)>();
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                foreach (char c in lines[i])
+                {
+                    if (c == '{' || c == '[' || c == '(')
+                    {
+                        braceStack.Push((c, i));
+                    }
+                    else if (c == '}' || c == ']' || c == ')')
+                    {
+                        if (braceStack.Count > 0)
+                        {
+                            var open = braceStack.Pop();
+                            if (i - open.line >= 2)
+                            {
+                                regions.Add((open.line, i));
+                            }
+                        }
+                    }
+                }
+            }
+
+            regions.Sort((a, b) => a.start.CompareTo(b.start));
+            return regions;
+        }
+
+        private void ShowMarkdownPreview(string markdown)
+        {
+            string html = ConvertMarkdownToHtml(markdown);
+            string fullHtml = $@"<!DOCTYPE html>
+<html>
+<head>
+<meta charset='utf-8'>
+<style>
+:root {{ color-scheme: light dark; }}
+body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    padding: 20px;
+    max-width: 800px;
+    margin: 0 auto;
+    background: #1e1e1e;
+    color: #d4d4d4;
+}}
+a {{ color: #58a6ff; }}
+code {{ background: #2d2d30; padding: 2px 6px; border-radius: 3px; font-family: Consolas, monospace; font-size: 0.9em; }}
+pre {{ background: #2d2d30; padding: 16px; border-radius: 6px; overflow-x: auto; }}
+pre code {{ background: none; padding: 0; }}
+h1, h2, h3, h4 {{ margin-top: 1.5em; margin-bottom: 0.5em; }}
+h1 {{ font-size: 2em; border-bottom: 1px solid #444; padding-bottom: 0.3em; }}
+h2 {{ font-size: 1.5em; border-bottom: 1px solid #333; padding-bottom: 0.3em; }}
+blockquote {{ border-left: 4px solid #555; margin: 0; padding-left: 16px; color: #888; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid #444; padding: 8px 12px; text-align: left; }}
+th {{ background: #2d2d30; }}
+hr {{ border: none; border-top: 1px solid #444; margin: 2em 0; }}
+ul, ol {{ padding-left: 2em; }}
+li {{ margin: 0.25em 0; }}
+img {{ max-width: 100%; }}
+</style>
+</head>
+<body>{html}</body>
+</html>";
+            WebPreview.NavigateToString(fullHtml);
+            WebPreview.Visibility = Visibility.Visible;
+        }
+
+        private string ConvertMarkdownToHtml(string md)
+        {
+            string html = System.Net.WebUtility.HtmlEncode(md);
+            
+            // Code blocks
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"```(\w*)\r?\n([\s\S]*?)```", "<pre><code>$2</code></pre>");
+            
+            // Headers
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"(?m)^###### (.+)$", "<h6>$1</h6>");
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"(?m)^##### (.+)$", "<h5>$1</h5>");
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"(?m)^#### (.+)$", "<h4>$1</h4>");
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"(?m)^### (.+)$", "<h3>$1</h3>");
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"(?m)^## (.+)$", "<h2>$1</h2>");
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"(?m)^# (.+)$", "<h1>$1</h1>");
+            
+            // Bold and italic
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"\*\*\*(.+?)\*\*\*", "<strong><em>$1</em></strong>");
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"\*\*(.+?)\*\*", "<strong>$1</strong>");
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"\*(.+?)\*", "<em>$1</em>");
+            
+            // Inline code
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"`([^`]+)`", "<code>$1</code>");
+            
+            // Links and images
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"!\[([^\]]*)\]\(([^)]+)\)", "<img src=\"$2\" alt=\"$1\">");
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"\[([^\]]+)\]\(([^)]+)\)", "<a href=\"$2\">$1</a>");
+            
+            // Blockquotes
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"(?m)^&gt; (.+)$", "<blockquote>$1</blockquote>");
+            
+            // Horizontal rules
+            html = System.Text.RegularExpressions.Regex.Replace(html, @"(?m)^[-*_]{3,}$", "<hr>");
+            
+            // Paragraphs
+            html = html.Replace("\r\n\r\n", "</p><p>").Replace("\n\n", "</p><p>");
+            html = "<p>" + html + "</p>";
+            html = html.Replace("<p></p>", "");
+            
+            return html;
         }
 
         private string FormatSize(long bytes)
